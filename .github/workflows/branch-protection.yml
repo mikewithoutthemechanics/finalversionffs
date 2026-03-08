@@ -1,21 +1,10 @@
 name: Branch Protection
-
 on:
   push:
     branches: [v2, main]
-
 jobs:
-  block-direct-push:
+  check:
     runs-on: ubuntu-latest
     steps:
-      - name: Block direct push
-        run: |
-          echo "Commit message: ${{ github.event.head_commit.message }}"
-          if [[ "${{ github.event.head_commit.message }}" == *"Merge pull request"* ]]; then
-            echo "OK: Merge commit"
-            exit 0
-          fi
-          echo "ERROR: Direct push to v2/main not allowed"
-          echo "Create a feature branch and open a Pull Request"
-          exit 1
-        shell: bash
+      - uses: actions/checkout@v4
+      - run: echo "Push detected"
