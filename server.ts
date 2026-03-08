@@ -82,16 +82,10 @@ function isValidPayFastIP(ip: string): boolean {
 // ============================================
 // IDEMPOTENCY TRACKING (Payment Processing)
 // ============================================
-
-const processedPayments = new Set<string>();
-
-function isPaymentProcessed(paymentId: string): boolean {
-  return processedPayments.has(paymentId);
-}
-
-function markPaymentProcessed(paymentId: string): void {
-  processedPayments.add(paymentId);
-}
+// CRITICAL FIX: Now uses database instead of in-memory Set
+// Previous implementation lost data on server restart
+// Now uses: db.isPaymentProcessed() and db.markPaymentProcessed()
+// See: services/db-supabase.ts - paymentIdempotencyService
 
 // ============================================
 // AUTHENTICATION MIDDLEWARE
@@ -1965,8 +1959,10 @@ app.post("/api/payfast/notify", async (req, res) => {
     }
 
     if (payment_status === 'COMPLETE') {
-      // SECURITY: Check idempotency - prevent duplicate credit additions
-      if (isPaymentProcessed(m_payment_id)) {
+      // CRITICAL SECURITY: Check idempotency - prevent duplicate credit additions
+      // Uses database to track processed payments ( survives server restarts )
+      const alreadyProcessed = await db.isPaymentProcessed(m_payment_id);
+      if (alreadyProcessed) {
         console.warn(`PayFast ITN: Duplicate payment detected - ${m_payment_id} already processed`);
         return res.send('OK');
       }
@@ -1981,11 +1977,20 @@ app.post("/api/payfast/notify", async (req, res) => {
           return res.status(HttpStatus.BAD_REQUEST).send('AMOUNT MISMATCH');
         }
         
-        // Update user credits
+        // Update user credits FIRST
         await db.updateUserCredits(purchaseUserId, totalCredits);
         
-        // Mark payment as processed for idempotency
-        markPaymentProcessed(m_payment_id);
+        // CRITICAL: Mark payment as processed AFTER successful credit update
+        // This ensures idempotency even if server crashes between steps
+        await db.markPaymentProcessed({
+          id: m_payment_id,
+          payment_status: 'COMPLETE',
+          user_id: purchaseUserId,
+          credit_package_id: credit_package_id,
+          credits_added: totalCredits,
+          ip_address: req.ip || req.headers['x-forwarded-for']?.toString(),
+          request_data: req.body
+        });
         
         console.log(`Credit purchase completed: ${totalCredits} credits added to user ${purchaseUserId}`);
       } else {

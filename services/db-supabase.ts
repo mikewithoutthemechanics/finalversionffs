@@ -3233,6 +3233,141 @@ const marketingCampaignsService = {
   }
 };
 
+// =============================================================================
+// PAYMENT IDEMPOTENCY SERVICE
+// CRITICAL FIX: Prevents duplicate payment processing
+// Previously used in-memory Set which was lost on server restart
+// =============================================================================
+
+export interface ProcessedPayment {
+  id: string; // PayFast payment ID
+  payment_status: string;
+  user_id?: string;
+  credit_package_id?: string;
+  credits_added?: number;
+  processed_at: string;
+  ip_address?: string;
+  request_data?: Record<string, unknown>;
+}
+
+const paymentIdempotencyService = {
+  /**
+   * Check if a payment has already been processed
+   * CRITICAL: This prevents duplicate credit additions
+   */
+  isPaymentProcessed: async (paymentId: string): Promise<boolean> => {
+    try {
+      const { data, error } = await withRetry(
+        () => supabase
+          .from('processed_payments')
+          .select('id')
+          .eq('id', paymentId)
+          .single(),
+        'isPaymentProcessed'
+      );
+      
+      if (error) {
+        // PGRST116 = no rows, meaning payment not processed yet
+        if (isNotFoundError(error)) {
+          return false;
+        }
+        console.error('[paymentIdempotencyService] Error checking payment:', error);
+        // Fail safe: if we can't check, assume processed to prevent duplicates
+        return true;
+      }
+      
+      return !!data;
+    } catch (err) {
+      console.error('[paymentIdempotencyService] Exception checking payment:', err);
+      // Fail safe: assume processed to prevent duplicates
+      return true;
+    }
+  },
+
+  /**
+   * Mark a payment as processed
+   * CRITICAL: Must be called AFTER successful credit update
+   */
+  markPaymentProcessed: async (payment: Omit<ProcessedPayment, 'processed_at'>): Promise<boolean> => {
+    try {
+      const { error } = await withRetry(
+        () => supabase
+          .from('processed_payments')
+          .insert({
+            ...payment,
+            processed_at: new Date().toISOString()
+          }),
+        'markPaymentProcessed'
+      );
+      
+      if (error) {
+        // If already exists (duplicate key), that's fine - idempotency achieved
+        if (error.code === '23505') { // PostgreSQL unique violation
+          console.log(`[paymentIdempotencyService] Payment ${payment.id} already marked as processed`);
+          return true;
+        }
+        console.error('[paymentIdempotencyService] Error marking payment:', error);
+        return false;
+      }
+      
+      return true;
+    } catch (err) {
+      console.error('[paymentIdempotencyService] Exception marking payment:', err);
+      return false;
+    }
+  },
+
+  /**
+   * Get processed payment details (for audit/debugging)
+   */
+  getProcessedPayment: async (paymentId: string): Promise<ProcessedPayment | null> => {
+    try {
+      const { data, error } = await withRetry(
+        () => supabase
+          .from('processed_payments')
+          .select('*')
+          .eq('id', paymentId)
+          .single(),
+        'getProcessedPayment'
+      );
+      
+      if (error) {
+        if (isNotFoundError(error)) return null;
+        throw error;
+      }
+      
+      return data as ProcessedPayment;
+    } catch (err) {
+      console.error('[paymentIdempotencyService] Error getting payment:', err);
+      return null;
+    }
+  },
+
+  /**
+   * Cleanup old records (keep 90 days)
+   * Should be called periodically (daily)
+   */
+  cleanupOldRecords: async (): Promise<number> => {
+    try {
+      const ninetyDaysAgo = new Date();
+      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+      
+      const { error, count } = await supabase
+        .from('processed_payments')
+        .delete()
+        .lt('processed_at', ninetyDaysAgo.toISOString());
+      
+      if (error) throw error;
+      
+      console.log(`[paymentIdempotencyService] Cleaned up ${count || 0} old records`);
+      return count || 0;
+    } catch (err) {
+      console.error('[paymentIdempotencyService] Error cleaning up:', err);
+      return 0;
+    }
+  }
+};
+
 // Default export for convenience
 export default db;
 
@@ -3240,7 +3375,7 @@ export default db;
 console.log('[db-supabase] Database service initialized with Supabase');
 console.log('[db-supabase] Configuration status:', isConfigured() ? 'Configured' : 'NOT CONFIGURED - check env vars');
 
-// FIX: Add chatMessagesService and marketingCampaignsService to db object
-// (These were referenced before they were defined)
+// FIX: Add services that were referenced before they were defined
 Object.assign(db, chatMessagesService);
 Object.assign(db, marketingCampaignsService);
+Object.assign(db, paymentIdempotencyService);
