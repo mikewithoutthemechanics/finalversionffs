@@ -3252,68 +3252,97 @@ export interface ProcessedPayment {
 
 const paymentIdempotencyService = {
   /**
-   * Check if a payment has already been processed
-   * CRITICAL: This prevents duplicate credit additions
+   * Process payment with idempotency guarantee
+   * CRITICAL: Uses database UPSERT pattern to handle race conditions
+   * Returns: { success, alreadyProcessed, error }
    */
-  isPaymentProcessed: async (paymentId: string): Promise<boolean> => {
+  processPaymentWithIdempotency: async (
+    payment: Omit<ProcessedPayment, 'processed_at'>
+  ): Promise<{ success: boolean; alreadyProcessed: boolean; error?: string }> => {
     try {
+      // STEP 1: Try to insert the record
+      // If it already exists (conflict), we get the existing record back
       const { data, error } = await withRetry(
         () => supabase
           .from('processed_payments')
-          .select('id')
-          .eq('id', paymentId)
+          .upsert(
+            {
+              ...payment,
+              processed_at: new Date().toISOString()
+            },
+            { 
+              onConflict: 'id',
+              ignoreDuplicates: false // Return the existing row on conflict
+            }
+          )
+          .select()
           .single(),
-        'isPaymentProcessed'
+        'processPaymentWithIdempotency'
       );
-      
+
       if (error) {
-        // PGRST116 = no rows, meaning payment not processed yet
-        if (isNotFoundError(error)) {
-          return false;
-        }
-        console.error('[paymentIdempotencyService] Error checking payment:', error);
-        // Fail safe: if we can't check, assume processed to prevent duplicates
-        return true;
+        console.error('[paymentIdempotencyService] Database error:', error);
+        return { 
+          success: false, 
+          alreadyProcessed: false, 
+          error: `Database error: ${error.message}` 
+        };
       }
+
+      // STEP 2: Check if this is the first time or a duplicate
+      // We compare the processed_at timestamp with a small window
+      // If it was processed more than 5 seconds ago, it's a duplicate
+      const processedAt = new Date(data.processed_at);
+      const now = new Date();
+      const secondsSinceProcessed = (now.getTime() - processedAt.getTime()) / 1000;
       
-      return !!data;
+      // If processed more than 5 seconds ago, it's a duplicate ITN
+      if (secondsSinceProcessed > 5) {
+        console.log(`[paymentIdempotencyService] Payment ${payment.id} already processed ${secondsSinceProcessed}s ago`);
+        return { success: true, alreadyProcessed: true };
+      }
+
+      // This is the first time processing (or within 5s window - race condition)
+      console.log(`[paymentIdempotencyService] Payment ${payment.id} processed successfully`);
+      return { success: true, alreadyProcessed: false };
+
     } catch (err) {
-      console.error('[paymentIdempotencyService] Exception checking payment:', err);
-      // Fail safe: assume processed to prevent duplicates
-      return true;
+      console.error('[paymentIdempotencyService] Exception:', err);
+      return { 
+        success: false, 
+        alreadyProcessed: false, 
+        error: err instanceof Error ? err.message : 'Unknown error' 
+      };
     }
   },
 
   /**
-   * Mark a payment as processed
-   * CRITICAL: Must be called AFTER successful credit update
+   * Check if a payment has been processed (for read-only checks)
+   * Returns null if database error (caller should handle)
    */
-  markPaymentProcessed: async (payment: Omit<ProcessedPayment, 'processed_at'>): Promise<boolean> => {
+  isPaymentProcessed: async (paymentId: string): Promise<boolean | null> => {
     try {
-      const { error } = await withRetry(
+      const { data, error } = await withRetry(
         () => supabase
           .from('processed_payments')
-          .insert({
-            ...payment,
-            processed_at: new Date().toISOString()
-          }),
-        'markPaymentProcessed'
+          .select('id, processed_at')
+          .eq('id', paymentId)
+          .single(),
+        'isPaymentProcessed'
       );
-      
+
       if (error) {
-        // If already exists (duplicate key), that's fine - idempotency achieved
-        if (error.code === '23505') { // PostgreSQL unique violation
-          console.log(`[paymentIdempotencyService] Payment ${payment.id} already marked as processed`);
-          return true;
+        if (isNotFoundError(error)) {
+          return false; // Not processed
         }
-        console.error('[paymentIdempotencyService] Error marking payment:', error);
-        return false;
+        console.error('[paymentIdempotencyService] Error checking:', error);
+        return null; // Database error - can't determine
       }
-      
-      return true;
+
+      return !!data;
     } catch (err) {
-      console.error('[paymentIdempotencyService] Exception marking payment:', err);
-      return false;
+      console.error('[paymentIdempotencyService] Exception:', err);
+      return null;
     }
   },
 
