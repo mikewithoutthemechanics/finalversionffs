@@ -1,0 +1,11 @@
+{
+  "name": "fix-rls",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "deploy": "supabase functions deploy fix-rls --no-verify-jwt"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.98.0"
+  }
+}

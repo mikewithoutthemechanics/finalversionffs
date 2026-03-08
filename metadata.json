@@ -1,0 +1,7 @@
+{
+  "name": "Booking App",
+  "description": "An application for managing and registering for fascia discovery workshops, complete with a client-facing app and an admin dashboard.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

@@ -1,0 +1,9 @@
+.env.production
+.env.staging
+.env
+node_modules/
+dist/
+.vercel
+*.log
+
+.vercel
