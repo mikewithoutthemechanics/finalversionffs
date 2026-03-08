@@ -1,0 +1,36 @@
+#!/bin/bash
+# Pre-commit hook for code quality
+echo "🔍 Running pre-commit checks..."
+
+# Check for large files (>10MB)
+large_files=$(git diff --cached --name-only --diff-filter=A | while read file; do
+    if [ -f "$file" ]; then
+        size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null)
+        if [ "$size" -gt 10485760 ]; then
+            echo "$file"
+        fi
+    fi
+done)
+
+if [ -n "$large_files" ]; then
+    echo "❌ Large files detected (>10MB):"
+    echo "$large_files"
+    exit 1
+fi
+
+# Check for secrets
+git diff --cached --name-only | xargs grep -l "password\|secret\|token\|key" 2>/dev/null | grep -v "\.githooks\|test\|example\|README\|CONTRIBUTING" && echo "⚠️  Possible secrets detected"
+
+# Check for debug statements
+debug_files=$(git diff --cached --name-only | grep -E '\.(js|ts|tsx)$' | while read file; do
+    if git show :"$file" 2>/dev/null | grep -q "console\.log\|debugger;"; then
+        echo "$file"
+    fi
+done)
+
+if [ -n "$debug_files" ]; then
+    echo "⚠️  Debug statements found - consider removing before commit"
+fi
+
+echo "✅ Pre-commit checks passed"
+exit 0

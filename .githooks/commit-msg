@@ -1,0 +1,16 @@
+#!/bin/bash
+# Commit message validation hook
+commit_msg_file=$1
+commit_msg=$(head -n1 "$commit_msg_file")
+pattern="^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?!?: .{1,100}$"
+if ! echo "$commit_msg" | grep -Eq "$pattern"; then
+    echo ""
+    echo "❌ Invalid commit message format!"
+    echo "Required format: <type>: <description>"
+    echo "Valid types: feat, fix, docs, style, refactor, test, chore, perf, ci, build, revert"
+    echo "Example: feat: add user authentication"
+    echo ""
+    exit 1
+fi
+echo "✅ Commit message format valid"
+exit 0
