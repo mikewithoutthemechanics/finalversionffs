@@ -1,0 +1,25 @@
+#!/bin/bash
+# Local branch protection hook
+# Install: git config core.hooksPath .githooks
+
+protected_branches="v2 main master"
+current_branch=$(git symbolic-ref HEAD 2>/dev/null | sed -e 's,.*/\(.*\),\1,')
+
+for protected in $protected_branches; do
+  if [ "$current_branch" = "$protected" ]; then
+    echo ""
+    echo "❌ ERROR: Direct push to '$protected' branch is not allowed!"
+    echo ""
+    echo "Required workflow:"
+    echo "  1. git checkout -b feature/your-change-name"
+    echo "  2. Make your changes and commit"
+    echo "  3. git push origin feature/your-change-name"
+    echo "  4. Open a Pull Request on GitHub"
+    echo ""
+    echo "To bypass (NOT RECOMMENDED): git push --no-verify"
+    echo ""
+    exit 1
+  fi
+done
+
+exit 0
