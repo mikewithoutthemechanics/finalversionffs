@@ -3,21 +3,19 @@ name: Branch Protection
 on:
   push:
     branches: [v2, main]
-  pull_request:
-    branches: [v2, main]
 
 jobs:
   block-direct-push:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     steps:
-      - name: Check if merge commit
+      - name: Block direct push
         run: |
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
-          if echo "$COMMIT_MSG" | grep -q "Merge pull request"; then
-            echo "Merge commit detected - allowing"
+          echo "Commit message: ${{ github.event.head_commit.message }}"
+          if [[ "${{ github.event.head_commit.message }}" == *"Merge pull request"* ]]; then
+            echo "OK: Merge commit"
             exit 0
           fi
-          echo "ERROR: Direct push to v2/main not allowed!"
-          echo "Create a feature branch and open a Pull Request."
+          echo "ERROR: Direct push to v2/main not allowed"
+          echo "Create a feature branch and open a Pull Request"
           exit 1
+        shell: bash
