@@ -1,0 +1,40 @@
+# CODEOWNERS - Automatic reviewer assignment
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Global default - all files
+* @mikewithoutthemechanics
+
+# Database and Supabase related
+/supabase/ @mikewithoutthemechanics
+/services/db-*.ts @mikewithoutthemechanics
+/services/supabase-*.ts @mikewithoutthemechanics
+
+# API endpoints
+/api/ @mikewithoutthemechanics
+
+# Payment processing (sensitive)
+/api/payfast/ @mikewithoutthemechanics
+/services/payfast.ts @mikewithoutthemechanics
+
+# Authentication and security
+/lib/supabase.ts @mikewithoutthemechanics
+/screens/*Login*.tsx @mikewithoutthemechanics
+/screens/*Auth*.tsx @mikewithoutthemechanics
+
+# Server and backend
+/server.ts @mikewithoutthemechanics
+
+# Configuration files
+/vercel.json @mikewithoutthemechanics
+/.env* @mikewithoutthemechanics
+
+# CI/CD workflows
+/.github/workflows/ @mikewithoutthemechanics
+
+# Documentation
+/docs/ @mikewithoutthemechanics
+*.md @mikewithoutthemechanics
+
+# Admin interfaces (sensitive)
+/screens/Admin*.tsx @mikewithoutthemechanics
+/screens/CRMApp.tsx @mikewithoutthemechanics
